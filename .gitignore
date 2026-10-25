@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.vscode/
+
+# data (download separately) and the local database
+data/
+fraud.db*
+
+.env
+Thumbs.db

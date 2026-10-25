@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fraud dashboard</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1c2330;--muted:#5b6677;--line:#dde1e7;--accent:#2563eb;
+--low:#1a7f45;--med:#a15c00;--high:#b42318;--lowbg:#e5f5ea;--medbg:#fff1d6;--highbg:#fde4e1}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--text:#e8ebf0;--muted:#9aa5b5;--line:#2c3441;
+--accent:#6ea0ff;--low:#5fd18b;--med:#f2b24c;--high:#ff8b7e;--lowbg:#17301f;--medbg:#3a2d12;--highbg:#3d1c19}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{font-size:18px;margin:0}h2{font-size:15px;margin:0 0 10px}main{padding:16px 20px;display:grid;gap:16px;max-width:1200px;margin:auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.stat b{display:block;font-size:24px}.muted{color:var(--muted);font-size:13px}
+.cols{display:grid;grid-template-columns:2fr 1fr;gap:16px}@media (max-width:860px){.cols{grid-template-columns:1fr}}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:600}
+.badge{padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600}
+.low{color:var(--low);background:var(--lowbg)}.medium{color:var(--med);background:var(--medbg)}.high{color:var(--high);background:var(--highbg)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:4px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.bad:hover{border-color:var(--high);color:var(--high)}button.good:hover{border-color:var(--low);color:var(--low)}
+input[type=password]{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);width:280px;max-width:100%}
+input[type=range]{width:100%}.err{color:var(--high)}.pad{padding:40px 20px;max-width:520px;margin:auto}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js" integrity="sha384-toVdrLSMaw7Y55MowcKqkmFL/Ek6Sky62NOk0b5sDDZBu2wcoPyyQUt9unDVjXhL" crossorigin="anonymous"></script>
+<script>
+(function () {
+  if (!window.React || !window.ReactDOM || !window.htm) {
+    document.getElementById("root").textContent =
+      "Could not load React from the CDN (no internet, or the file was blocked). Reload when online.";
+    return;
+  }
+  const { useState, useEffect, useCallback } = React;
+  const html = htm.bind(React.createElement);
+  const POLL_MS = 4000;
+  const money = (x) => "$" + Number(x).toFixed(2);
+  const pct = (p) => (p * 100).toFixed(p < 0.01 ? 3 : 1) + "%";
+
+  async function api(path, key, options) {
+    const res = await fetch(path, Object.assign({}, options, {
+      headers: { "x-api-key": key, "content-type": "application/json" } }));
+    if (res.status === 401) throw new Error("Wrong API key");
+    if (!res.ok) throw new Error("Server error " + res.status);
+    return res.json();
+  }
+
+  const Badge = ({ tier }) => html`<span class=${"badge " + tier}>${tier}</span>`;
+  const Stat = ({ label, value, hint }) => html`<div class="card stat"><span class="muted">${label}</span>
+    <b>${value}</b>${hint ? html`<span class="muted">${hint}</span>` : null}</div>`;
+
+  function Connect({ onConnect, error }) {
+    const [v, setV] = useState("");
+    return html`<div class="pad"><h1>Fraud dashboard</h1>
+      <p class="muted">Enter the API key you set in the server window. It is kept only in this browser tab.</p>
+      <p><input type="password" value=${v} placeholder="API key" autoComplete="off"
+         onInput=${(e) => setV(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && v && onConnect(v)} /></p>
+      <p><button class="primary" disabled=${!v} onClick=${() => onConnect(v)}>Connect</button></p>
+      ${error ? html`<p class="err">${error}</p>` : null}</div>`;
+  }
+
+  function WhatIf({ rows, rules, R, setR }) {
+    const flagged = (r) => r.fraud_probability >= rules.high_risk_p ||
+      (r.fraud_probability * (r.amount + rules.extra_per_miss)) / R >= 1;
+    const nFlag = rows.filter(flagged).length;
+    const frauds = rows.filter((r) => r.review_label === "fraud");
+    const legit = rows.filter((r) => r.review_label === "legit");
+    return html`<div class="card"><h2>What if a review cost $${R}?</h2>
+      <input type="range" min="1" max="50" value=${R} aria-label="Review cost in dollars"
+             onInput=${(e) => setR(Number(e.target.value))} />
+      <p class="muted">Rule: flag when probability × (amount + $${rules.extra_per_miss}) ≥ review cost.
+        The model was built for $${rules.review_cost}.</p>
+      <p><b>${nFlag}</b> of the ${rows.length} most recent transactions would be flagged
+         (${rows.length ? Math.round((100 * nFlag) / rows.length) : 0}%).</p>
+      <p>Among analyst-labelled ones: <b>${frauds.filter(flagged).length}</b> of ${frauds.length} confirmed frauds
+         still flagged; <b>${legit.filter((r) => !flagged(r)).length}</b> of ${legit.length} false alarms avoided.</p>
+      <p class="muted">Only reviewed transactions have known labels, and low-risk ones are never reviewed,
+        so lowering the cost below $${rules.review_cost} cannot be judged from this data.</p></div>`;
+  }
+
+  function Dashboard({ apiKey, onDisconnect }) {
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+    const [paused, setPaused] = useState(false);
+    const [R, setR] = useState(null);
+
+    const load = useCallback(async () => {
+      try {
+        const [health, stats, high, med, recent] = await Promise.all([
+          api("/health", apiKey), api("/stats", apiKey),
+          api("/transactions?tier=high&status=unreviewed&limit=100", apiKey),
+          api("/transactions?tier=medium&status=unreviewed&limit=100", apiKey),
+          api("/transactions?limit=500", apiKey)]);
+        const queue = high.concat(med).sort((a, b) => b.expected_loss_ratio - a.expected_loss_ratio);
+        setData({ rules: health.rules, version: health.model_version, stats, queue, recent });
+        setR((cur) => (cur === null ? health.rules.review_cost : cur));
+        setError("");
+      } catch (e) {
+        if (e.message === "Wrong API key") onDisconnect(e.message); else setError(String(e.message));
+      }
+    }, [apiKey]);
+
+    useEffect(() => { load(); if (paused) return; const t = setInterval(load, POLL_MS); return () => clearInterval(t); }, [load, paused]);
+
+    const review = async (id, label) => {
+      setData((d) => Object.assign({}, d, { queue: d.queue.filter((q) => q.id !== id) }));
+      try { await api("/transactions/" + id + "/review", apiKey, { method: "POST", body: JSON.stringify({ label }) }); }
+      catch (e) { setError(String(e.message)); }
+      load();
+    };
+
+    if (!data) return html`<div class="pad">${error ? html`<p class="err">${error}</p>` : "Loading…"}</div>`;
+    const { stats, queue, recent, rules } = data;
+    const bt = stats.by_tier;
+    const flaggedReviewed = bt.medium.reviewed + bt.high.reviewed;
+    const flaggedFraud = bt.medium.confirmed_fraud + bt.high.confirmed_fraud;
+
+    return html`<div>
+      <header><h1>Fraud dashboard <span class="muted">model ${data.version}</span></h1>
+        <div>${error ? html`<span class="err">${error} </span>` : null}
+          <button onClick=${() => setPaused(!paused)}>${paused ? "Resume updates" : "Pause updates"}</button>
+          ${" "}<button onClick=${() => onDisconnect("")}>Disconnect</button></div></header>
+      <main>
+        <section class="cards" aria-label="Summary">
+          <${Stat} label="Scored" value=${stats.total} />
+          <${Stat} label="Low risk (approve)" value=${bt.low.n} />
+          <${Stat} label="Medium (review)" value=${bt.medium.n} />
+          <${Stat} label="High (escalate)" value=${bt.high.n} />
+          <${Stat} label="Waiting for review" value=${queue.length} />
+          <${Stat} label="Flagged items that were fraud" hint=${flaggedFraud + " of " + flaggedReviewed + " reviewed"}
+            value=${flaggedReviewed ? Math.round((100 * flaggedFraud) / flaggedReviewed) + "%" : "–"} />
+        </section>
+        <div class="cols">
+          <section class="card"><h2>Review queue (highest expected loss first)</h2>
+            ${queue.length === 0 ? html`<p class="muted">Nothing waiting. Run simulate.py to add traffic.</p>` : html`
+            <div class="scroll"><table><thead><tr><th>ID</th><th>Reference</th><th>Amount</th><th>Fraud probability</th><th>Tier</th><th>Decision</th></tr></thead><tbody>
+              ${queue.slice(0, 50).map((q) => html`<tr key=${q.id}><td>${q.id}</td><td>${q.transaction_id || "–"}</td>
+                <td>${money(q.amount)}</td><td>${pct(q.fraud_probability)}</td><td><${Badge} tier=${q.tier} /></td>
+                <td><button class="bad" onClick=${() => review(q.id, "fraud")}>Fraud</button>${" "}
+                    <button class="good" onClick=${() => review(q.id, "legit")}>Legit</button></td></tr>`)}
+            </tbody></table></div>${queue.length > 50 ? html`<p class="muted">Showing 50 of ${queue.length}.</p>` : null}`}
+          </section>
+          <${WhatIf} rows=${recent} rules=${rules} R=${R || rules.review_cost} setR=${setR} />
+        </div>
+        <section class="card"><h2>Latest transactions</h2><div class="scroll"><table>
+          <thead><tr><th>ID</th><th>Reference</th><th>Amount</th><th>Fraud probability</th><th>Tier</th><th>Review</th></tr></thead><tbody>
+          ${recent.slice(0, 15).map((r) => html`<tr key=${r.id}><td>${r.id}</td><td>${r.transaction_id || "–"}</td>
+            <td>${money(r.amount)}</td><td>${pct(r.fraud_probability)}</td><td><${Badge} tier=${r.tier} /></td>
+            <td>${r.review_label || "–"}</td></tr>`)}
+        </tbody></table></div></section>
+      </main></div>`;
+  }
+
+  function App() {
+    const [key, setKey] = useState(() => sessionStorage.getItem("fraud_key") || "");
+    const [error, setError] = useState("");
+    const connect = async (k) => {
+      try { await api("/stats", k); sessionStorage.setItem("fraud_key", k); setKey(k); setError(""); }
+      catch (e) { setError(e.message); }
+    };
+    const disconnect = (msg) => { sessionStorage.removeItem("fraud_key"); setKey(""); setError(msg || ""); };
+    return key ? html`<${Dashboard} apiKey=${key} onDisconnect=${disconnect} />`
+               : html`<${Connect} onConnect=${connect} error=${error} />`;
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(html`<${App} />`);
+})();
+</script>
+</body>
+</html>

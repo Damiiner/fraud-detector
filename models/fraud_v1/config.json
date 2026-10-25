@@ -1,0 +1,82 @@
+{
+  "version": "v1",
+  "features": [
+    "Time",
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7",
+    "V8",
+    "V9",
+    "V10",
+    "V11",
+    "V12",
+    "V13",
+    "V14",
+    "V15",
+    "V16",
+    "V17",
+    "V18",
+    "V19",
+    "V20",
+    "V21",
+    "V22",
+    "V23",
+    "V24",
+    "V25",
+    "V26",
+    "V27",
+    "V28",
+    "Amount"
+  ],
+  "preprocessing": "Amount -> log1p; then StandardScaler on [Time, Amount]",
+  "score": "mean of XGBoost and Keras probabilities, then Platt calibration",
+  "review_cost": 5.0,
+  "extra_per_miss": 25.0,
+  "high_risk_p": 0.9,
+  "global_threshold": 0.01692499028589053,
+  "trained_on": {
+    "rows": 226980,
+    "frauds": 378
+  },
+  "test_pr_auc": {
+    "LogReg": 0.7153851559298463,
+    "XGBoost": 0.8706436629948558,
+    "Keras": 0.8552052979104114,
+    "Average": 0.8862672239883603
+  },
+  "test_cost_table": [
+    {
+      "rule": "flag nothing",
+      "cost": 15348,
+      "saved_pct": 0.0,
+      "flagged": 0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    {
+      "rule": "global t=0.0169",
+      "cost": 3236,
+      "saved_pct": 78.9,
+      "flagged": 196,
+      "precision": 0.434,
+      "recall": 0.895
+    },
+    {
+      "rule": "amount-aware tiers",
+      "cost": 2347,
+      "saved_pct": 84.7,
+      "flagged": 152,
+      "precision": 0.546,
+      "recall": 0.874
+    }
+  ],
+  "libraries": {
+    "tensorflow": "2.22.0-rc0",
+    "xgboost": "3.4.1",
+    "scikit-learn": "1.9.1"
+  }
+}
